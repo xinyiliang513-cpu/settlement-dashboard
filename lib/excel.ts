@@ -12,6 +12,8 @@ export type DateFilter = {
 export type PreparedData = {
   mode: DashboardMode;
   fileName: string;
+  fileCount: number;
+  fileNames: string[];
   sourceRows: number;
   outputRows: number;
   matchedFields: number;
@@ -345,6 +347,16 @@ async function readRows(file: File) {
   return rows;
 }
 
+async function readRowsWithFileContext(file: File) {
+  try {
+    return await readRows(file);
+  } catch (caught) {
+    const message =
+      caught instanceof Error ? caught.message : "文件无法读取。";
+    throw new Error(`${file.name}：${message}`);
+  }
+}
+
 function coerceMonthlyValue(field: string, value: CellValue) {
   if (field === "Date") return toDate(value) ?? value;
   if (MONTHLY_NUMERIC_FIELDS.has(field)) return toNumber(value) ?? value;
@@ -353,71 +365,78 @@ function coerceMonthlyValue(field: string, value: CellValue) {
 }
 
 async function prepareMonthly(
-  file: File,
+  files: File[],
   dateFilter?: DateFilter,
 ): Promise<PreparedData> {
-  const allRows = await readRows(file);
   const filter = validateDateFilter(dateFilter);
-  const headerIndex = buildHeaderIndex(allRows[0] ?? []);
-  const monthlySignatureCount = MONTHLY_SOURCE_SIGNATURES.filter((field) =>
-    headerIndex.has(normalizeHeader(field)),
-  ).length;
-  if (monthlySignatureCount < 2) {
-    throw new Error(
-      "此接口只接受 Moderator 原始表，并只生成 Monthly Details。请检查上传文件。",
-    );
-  }
   const mappedFields = MONTHLY_SOURCES.filter(
     (field): field is string => Boolean(field),
   );
   const uniqueFields = [...new Set(mappedFields)];
-  const missingFields = uniqueFields.filter(
-    (field) => !headerIndex.has(normalizeHeader(field)),
-  );
+  const missingFields = new Set<string>();
   const availableDates: string[] = [];
   const selectedDates: string[] = [];
   const rows: CellValue[][] = [];
 
-  for (const sourceRow of allRows.slice(1)) {
-    const coreFields = ["Project", "Date", "Name", "Work account"];
-    const hasCoreValue = coreFields.some(
-      (field) => !isBlank(getByHeader(sourceRow, headerIndex, field)),
-    );
-    if (!hasCoreValue) continue;
+  for (const file of files) {
+    const allRows = await readRowsWithFileContext(file);
+    const headerIndex = buildHeaderIndex(allRows[0] ?? []);
+    const monthlySignatureCount = MONTHLY_SOURCE_SIGNATURES.filter((field) =>
+      headerIndex.has(normalizeHeader(field)),
+    ).length;
+    if (monthlySignatureCount < 2) {
+      throw new Error(
+        `${file.name} 不是有效的 Moderator 原始表，批量处理已停止。`,
+      );
+    }
+    uniqueFields.forEach((field) => {
+      if (!headerIndex.has(normalizeHeader(field))) missingFields.add(field);
+    });
 
-    const sourceDate = displayDate(
-      getByHeader(sourceRow, headerIndex, "Date"),
-    );
-    if (sourceDate) availableDates.push(sourceDate);
-    if (!isDateInFilter(sourceDate, filter)) continue;
+    for (const sourceRow of allRows.slice(1)) {
+      const coreFields = ["Project", "Date", "Name", "Work account"];
+      const hasCoreValue = coreFields.some(
+        (field) => !isBlank(getByHeader(sourceRow, headerIndex, field)),
+      );
+      if (!hasCoreValue) continue;
 
-    const outputRow = MONTHLY_SOURCES.map((field) =>
-      field
-        ? coerceMonthlyValue(
-            field,
-            getByHeader(sourceRow, headerIndex, field),
-          )
-        : null,
-    );
-    const actualUr = toPercent(outputRow[23]);
-    const actualAht = toNumber(outputRow[26]);
-    outputRow[24] = actualUr !== null && actualUr >= 0.75 ? "Yes" : "No";
-    outputRow[27] =
-      actualAht !== null && actualAht !== 0 ? 3600 / actualAht : null;
-    if (sourceDate) selectedDates.push(sourceDate);
-    rows.push(outputRow);
+      const sourceDate = displayDate(
+        getByHeader(sourceRow, headerIndex, "Date"),
+      );
+      if (sourceDate) availableDates.push(sourceDate);
+      if (!isDateInFilter(sourceDate, filter)) continue;
+
+      const outputRow = MONTHLY_SOURCES.map((field) =>
+        field
+          ? coerceMonthlyValue(
+              field,
+              getByHeader(sourceRow, headerIndex, field),
+            )
+          : null,
+      );
+      const actualUr = toPercent(outputRow[23]);
+      const actualAht = toNumber(outputRow[26]);
+      outputRow[24] = actualUr !== null && actualUr >= 0.75 ? "Yes" : "No";
+      outputRow[27] =
+        actualAht !== null && actualAht !== 0 ? 3600 / actualAht : null;
+      if (sourceDate) selectedDates.push(sourceDate);
+      rows.push(outputRow);
+    }
   }
 
+  const missingFieldList = [...missingFields];
   const sortedSelectedDates = selectedDates.sort();
   const availableRange = getAvailableDateRange(availableDates);
   return {
     mode: "monthly",
-    fileName: file.name,
+    fileName: files.map((file) => file.name).join("、"),
+    fileCount: files.length,
+    fileNames: files.map((file) => file.name),
     sourceRows: rows.length,
     outputRows: rows.length,
-    matchedFields: uniqueFields.length - missingFields.length,
+    matchedFields: uniqueFields.length - missingFieldList.length,
     expectedFields: uniqueFields.length,
-    missingFields,
+    missingFields: missingFieldList,
     rows,
     dateRange: getSelectedDateRange(
       sortedSelectedDates,
@@ -439,88 +458,97 @@ type ManagementGroup = {
   name: CellValue;
   account: CellValue;
   needSeparate: CellValue;
-  workingDates: Set<string>;
+  workingDays: Set<string>;
   totalHours: number;
 };
 
 async function prepareNonbillable(
-  file: File,
+  files: File[],
   dateFilter?: DateFilter,
 ): Promise<PreparedData> {
-  const allRows = await readRows(file);
   const filter = validateDateFilter(dateFilter);
-  const headerIndex = buildHeaderIndex(allRows[0] ?? []);
-  if (!headerIndex.has(normalizeHeader("Actual working hour"))) {
-    throw new Error(
-      "此接口只接受 Management 原始表，并只生成 Non-biliable Invoice。请检查上传文件。",
-    );
-  }
-  const missingFields = NONBILLABLE_SOURCE_FIELDS.filter(
-    (field) => !headerIndex.has(normalizeHeader(field)),
-  );
+  const missingFields = new Set<string>();
   const groups = new Map<string, ManagementGroup>();
   const availableDates: string[] = [];
   const selectedDates: string[] = [];
   let sourceRows = 0;
+  let globalRowIndex = 0;
 
-  allRows.slice(1).forEach((sourceRow, rowIndex) => {
-    const pm = getByHeader(sourceRow, headerIndex, "PM");
-    const project = getByHeader(sourceRow, headerIndex, "Project");
-    const language = getByHeader(sourceRow, headerIndex, "Language");
-    const role = getByHeader(sourceRow, headerIndex, "Role");
-    const name = getByHeader(sourceRow, headerIndex, "Name");
-    const account = getByHeader(sourceRow, headerIndex, "Work account");
-    const dateValue = getByHeader(sourceRow, headerIndex, "Date");
-    const hoursValue = getByHeader(
-      sourceRow,
-      headerIndex,
-      "Actual working hour",
-    );
-    const needSeparate = getByHeader(
-      sourceRow,
-      headerIndex,
-      "Need Separate",
-    );
-    const hasCoreValue = [project, name, account, dateValue, hoursValue].some(
-      (value) => !isBlank(value),
-    );
-    if (!hasCoreValue) return;
-
-    const { dayKey } = dateParts(dateValue);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
-      availableDates.push(dayKey);
+  for (const file of files) {
+    const allRows = await readRowsWithFileContext(file);
+    const headerIndex = buildHeaderIndex(allRows[0] ?? []);
+    if (!headerIndex.has(normalizeHeader("Actual working hour"))) {
+      throw new Error(
+        `${file.name} 不是有效的 Management 原始表，批量处理已停止。`,
+      );
     }
-    if (!isDateInFilter(dayKey, filter)) return;
+    NONBILLABLE_SOURCE_FIELDS.forEach((field) => {
+      if (!headerIndex.has(normalizeHeader(field))) missingFields.add(field);
+    });
 
-    sourceRows += 1;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
-      selectedDates.push(dayKey);
-    }
-    const key = [project, language, role, account]
-      .map((value) => normalizeHeader(value))
-      .join("\u001f");
-    const group =
-      groups.get(key) ??
-      ({
-        firstSeen: rowIndex,
-        pm,
-        project,
-        language,
-        role,
-        name,
-        account,
-        needSeparate,
-        workingDates: new Set<string>(),
-        totalHours: 0,
-      } satisfies ManagementGroup);
+    for (const sourceRow of allRows.slice(1)) {
+      const rowIndex = globalRowIndex;
+      globalRowIndex += 1;
+      const pm = getByHeader(sourceRow, headerIndex, "PM");
+      const project = getByHeader(sourceRow, headerIndex, "Project");
+      const language = getByHeader(sourceRow, headerIndex, "Language");
+      const role = getByHeader(sourceRow, headerIndex, "Role");
+      const name = getByHeader(sourceRow, headerIndex, "Name");
+      const account = getByHeader(sourceRow, headerIndex, "Work account");
+      const dateValue = getByHeader(sourceRow, headerIndex, "Date");
+      const hoursValue = getByHeader(
+        sourceRow,
+        headerIndex,
+        "Actual working hour",
+      );
+      const needSeparate = getByHeader(
+        sourceRow,
+        headerIndex,
+        "Need Separate",
+      );
+      const hasCoreValue = [project, name, account, dateValue, hoursValue].some(
+        (value) => !isBlank(value),
+      );
+      if (!hasCoreValue) continue;
 
-    const hours = toNumber(hoursValue);
-    if (hours !== null && hours > 0) {
-      group.workingDates.add(dayKey);
-      group.totalHours += hours;
+      const { dayKey } = dateParts(dateValue);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+        availableDates.push(dayKey);
+      }
+      if (!isDateInFilter(dayKey, filter)) continue;
+
+      sourceRows += 1;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+        selectedDates.push(dayKey);
+      }
+      const key = [project, pm, language, role]
+        .map((value) => normalizeHeader(value))
+        .join("\u001f");
+      const group =
+        groups.get(key) ??
+        ({
+          firstSeen: rowIndex,
+          pm,
+          project,
+          language,
+          role,
+          name,
+          account,
+          needSeparate,
+          workingDays: new Set<string>(),
+          totalHours: 0,
+        } satisfies ManagementGroup);
+
+      const hours = toNumber(hoursValue);
+      if (hours !== null && hours > 0) {
+        const workerKey =
+          normalizeHeader(account) || normalizeHeader(name) || "unknown-worker";
+        group.workingDays.add(`${workerKey}\u001f${dayKey}`);
+        group.totalHours += hours;
+      }
+      groups.set(key, group);
     }
-    groups.set(key, group);
-  });
+  }
 
   const orderedGroups = [...groups.values()].sort(
     (a, b) => a.firstSeen - b.firstSeen,
@@ -540,7 +568,7 @@ async function prepareNonbillable(
     null,
     null,
     null,
-    group.workingDates.size,
+    group.workingDays.size,
     Number(group.totalHours.toFixed(5)),
     null,
     null,
@@ -549,16 +577,19 @@ async function prepareNonbillable(
   ]);
   const sortedSelectedDates = selectedDates.sort();
   const availableRange = getAvailableDateRange(availableDates);
+  const missingFieldList = [...missingFields];
 
   return {
     mode: "nonbillable",
-    fileName: file.name,
+    fileName: files.map((file) => file.name).join("、"),
+    fileCount: files.length,
+    fileNames: files.map((file) => file.name),
     sourceRows,
     outputRows: rows.length,
     matchedFields:
-      NONBILLABLE_SOURCE_FIELDS.length - missingFields.length,
+      NONBILLABLE_SOURCE_FIELDS.length - missingFieldList.length,
     expectedFields: NONBILLABLE_SOURCE_FIELDS.length,
-    missingFields: [...missingFields],
+    missingFields: missingFieldList,
     rows,
     totalHours: orderedGroups.reduce(
       (total, group) => total + group.totalHours,
@@ -580,13 +611,25 @@ export async function prepareWorkbook(
   mode: DashboardMode,
   dateFilter?: DateFilter,
 ): Promise<PreparedData> {
-  const name = file.name.toLowerCase();
-  if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
-    throw new Error("请上传 .xlsx 或 .xls 格式的 Excel 文件。");
+  return prepareWorkbooks([file], mode, dateFilter);
+}
+
+export async function prepareWorkbooks(
+  files: File[],
+  mode: DashboardMode,
+  dateFilter?: DateFilter,
+): Promise<PreparedData> {
+  if (!files.length) throw new Error("请至少上传一个 Excel 文件。");
+  const invalidFile = files.find((file) => {
+    const name = file.name.toLowerCase();
+    return !name.endsWith(".xlsx") && !name.endsWith(".xls");
+  });
+  if (invalidFile) {
+    throw new Error(`${invalidFile.name} 不是 .xlsx 或 .xls 文件。`);
   }
   return mode === "monthly"
-    ? prepareMonthly(file, dateFilter)
-    : prepareNonbillable(file, dateFilter);
+    ? prepareMonthly(files, dateFilter)
+    : prepareNonbillable(files, dateFilter);
 }
 
 function clone<T>(value: T): T {

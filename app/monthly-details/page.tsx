@@ -3,7 +3,8 @@ import SettlementDashboard from "@/components/SettlementDashboard";
 
 export const metadata: Metadata = {
   title: "Monthly Details | Settlement Desk",
-  description: "将 Moderator & QA 原始数据转换为 Monthly Details 结算模板。",
+  description:
+    "批量合并 Moderator & QA 原始数据，统一筛选日期并生成 Monthly Details 结算模板。",
 };
 
 export default function MonthlyDetailsPage() {

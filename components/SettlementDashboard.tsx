@@ -21,7 +21,7 @@ import {
   DashboardMode,
   downloadBuffer,
   getPreviewHeaders,
-  prepareWorkbook,
+  prepareWorkbooks,
   PreparedData,
 } from "@/lib/excel";
 import {
@@ -42,12 +42,13 @@ const COPY = {
     eyebrow: "MODERATOR & QA",
     title: "Monthly Details",
     description:
-      "此接口只接收 Moderator 原始表。上传后选择结算周期，只生成该周期内的 Monthly Details，空映射列原样保留。",
-    uploadLabel: "上传 Moderator Excel",
+      "可批量上传多份 Moderator 原始表。系统逐个文件按字段名匹配，再合并成一份所选周期内的 Monthly Details。",
+    uploadLabel: "批量上传 Moderator Excel",
     outputName: "Monthly Details",
     accent: "lime",
     rules: [
       "先按选择的结算周期筛选 Date，再生成结果",
+      "多个文件按字段名分别匹配，原始列顺序可不同",
       "每条原始记录对应模板中的一行",
       "字段名匹配，不依赖原始列顺序",
       "UR Status 与 Productivity 自动写入公式",
@@ -58,16 +59,17 @@ const COPY = {
     eyebrow: "MANAGEMENT",
     title: "Non-biliable Invoice",
     description:
-      "此接口只接收 Management 原始表。上传后选择结算周期，再按项目、语种、角色和 Working Account 汇总该周期内的工时。",
-    uploadLabel: "上传 Management Excel",
+      "可批量上传多份 Management 原始表。统一筛选结算周期，再按项目、PM、语种和角色跨文件汇总。",
+    uploadLabel: "批量上传 Management Excel",
     outputName: "Non-biliable Invoice",
     accent: "orange",
     rules: [
       "先按选择的结算周期筛选 Date，再执行汇总",
-      "Project、Language、Role、Working Account 相同即合并",
-      "所选周期可跨月份；不同工作日期累计为 Working Days",
+      "多个文件按字段名分别匹配，原始列顺序可不同",
+      "Project、PM、Language、Role 相同即合并",
+      "Working Days 按工作账号与日期去重后累计",
       "Actual working hour 累加为 Total Working Hours",
-      "PM、Name、Need Separate 保留该组第一条记录的值",
+      "Name、Working Account、Need Separate 保留该组第一条记录的值",
     ],
   },
 } as const;
@@ -116,12 +118,19 @@ function todayStamp() {
   ].join("-");
 }
 
+function outputPeriod(prepared: PreparedData) {
+  const start =
+    prepared.selectedDateStart ?? prepared.availableDateStart;
+  const end = prepared.selectedDateEnd ?? prepared.availableDateEnd;
+  return start && end ? `${start}_to_${end}` : todayStamp();
+}
+
 export default function SettlementDashboard({ mode }: Props) {
   const copy = COPY[mode];
   const headers = getPreviewHeaders(mode);
   const inputRef = useRef<HTMLInputElement>(null);
   const [prepared, setPrepared] = useState<PreparedData | null>(null);
-  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [sourceFiles, setSourceFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -141,6 +150,11 @@ export default function SettlementDashboard({ mode }: Props) {
   const stats = useMemo(() => {
     if (!prepared) return [];
     const common = [
+      {
+        label: "上传文件",
+        value: prepared.fileCount.toLocaleString("en-US"),
+        note: "已合并处理",
+      },
       {
         label: "来源记录",
         value: prepared.sourceRows.toLocaleString("en-US"),
@@ -177,13 +191,13 @@ export default function SettlementDashboard({ mode }: Props) {
     ];
   }, [mode, prepared]);
 
-  async function processFile(
-    file: File,
+  async function processFiles(
+    files: File[],
     dateFilter?: DateFilter,
     initialize = false,
   ) {
     if (initialize) {
-      setSourceFile(file);
+      setSourceFiles(files);
       setPrepared(null);
       setDateStart("");
       setDateEnd("");
@@ -191,7 +205,7 @@ export default function SettlementDashboard({ mode }: Props) {
     setError("");
     setIsProcessing(true);
     try {
-      const result = await prepareWorkbook(file, mode, dateFilter);
+      const result = await prepareWorkbooks(files, mode, dateFilter);
       setPrepared(result);
       if (initialize) {
         setDateStart(result.availableDateStart ?? "");
@@ -207,32 +221,32 @@ export default function SettlementDashboard({ mode }: Props) {
   }
 
   function handleInput(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) void processFile(file, undefined, true);
+    const files = Array.from(event.target.files ?? []);
+    if (files.length) void processFiles(files, undefined, true);
     event.target.value = "";
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setIsDragging(false);
-    const file = event.dataTransfer.files?.[0];
-    if (file) void processFile(file, undefined, true);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length) void processFiles(files, undefined, true);
   }
 
   async function handleApplyDateFilter() {
-    if (!sourceFile) return;
+    if (!sourceFiles.length) return;
     if (!dateStart || !dateEnd) {
       setError("请选择完整的开始日期和结束日期。");
       return;
     }
-    await processFile(sourceFile, { start: dateStart, end: dateEnd });
+    await processFiles(sourceFiles, { start: dateStart, end: dateEnd });
   }
 
   async function handleResetDateFilter() {
-    if (!sourceFile || !prepared) return;
+    if (!sourceFiles.length || !prepared) return;
     setDateStart(prepared.availableDateStart ?? "");
     setDateEnd(prepared.availableDateEnd ?? "");
-    await processFile(sourceFile);
+    await processFiles(sourceFiles);
   }
 
   function handleDropzoneKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -250,7 +264,10 @@ export default function SettlementDashboard({ mode }: Props) {
       const buffer = await buildOutputWorkbook(prepared);
       const prefix =
         mode === "monthly" ? "Monthly Details" : "Non-biliable Invoice";
-      downloadBuffer(buffer as ArrayBuffer, `${prefix}_${todayStamp()}.xlsx`);
+      downloadBuffer(
+        buffer as ArrayBuffer,
+        `${prefix}_${outputPeriod(prepared)}.xlsx`,
+      );
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "模板生成失败，请稍后重试。",
@@ -345,6 +362,7 @@ export default function SettlementDashboard({ mode }: Props) {
               ref={inputRef}
               type="file"
               accept=".xlsx,.xls"
+              multiple
               onChange={handleInput}
               hidden
             />
@@ -357,27 +375,42 @@ export default function SettlementDashboard({ mode }: Props) {
             </div>
             <div>
               <strong>
-                {isProcessing ? "正在读取并匹配字段…" : copy.uploadLabel}
+                {isProcessing
+                  ? `正在读取并合并 ${sourceFiles.length || ""} 个文件…`
+                  : copy.uploadLabel}
               </strong>
-              <p>拖放文件到这里，或点击选择文件</p>
+              <p>可一次拖入多个文件，或点击多选文件</p>
             </div>
             <span className="file-type">XLSX / XLS</span>
           </div>
 
-          {sourceFile && (
-            <div className="selected-file">
-              <div className="file-icon">
-                <FileSpreadsheet size={22} />
-              </div>
-              <div>
-                <strong>{sourceFile.name}</strong>
-                <span>{formatFileSize(sourceFile.size)}</span>
-              </div>
-              {prepared && (
-                <div className="ready-label">
-                  <CheckCircle2 size={16} /> 已完成
+          {sourceFiles.length > 0 && (
+            <div className="selected-files">
+              <div className="selected-files-heading">
+                <div>
+                  <FileSpreadsheet size={20} />
+                  <strong>已选择 {sourceFiles.length} 个文件</strong>
+                  <span>
+                    {formatFileSize(
+                      sourceFiles.reduce((total, file) => total + file.size, 0),
+                    )}
+                  </span>
                 </div>
-              )}
+                {prepared && (
+                  <div className="ready-label">
+                    <CheckCircle2 size={16} /> 已合并
+                  </div>
+                )}
+              </div>
+              <ul>
+                {sourceFiles.map((file, index) => (
+                  <li key={`${file.name}-${file.size}-${index}`}>
+                    <span>{index + 1}</span>
+                    <strong title={file.name}>{file.name}</strong>
+                    <small>{formatFileSize(file.size)}</small>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

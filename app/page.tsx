@@ -31,8 +31,8 @@ export default function Home() {
         <h1>两个独立的 Excel 转换接口</h1>
         <p>
           两个入口互不混用：Moderator 只对应 Monthly Details，Management
-          只对应 Non-biliable。上传后可选择结算周期，再复制结果或下载对应
-          Excel。
+          只对应 Non-biliable。每个入口均可一次上传多个字段顺序不同的文件，
+          再统一筛选结算周期并导出一份结果。
         </p>
       </section>
 
@@ -43,7 +43,10 @@ export default function Home() {
           </div>
           <span className="entry-kicker">MODERATOR SOURCE</span>
           <h2>Moderator → Monthly Details</h2>
-          <p>仅接收 Moderator 原始表，按所选日期逐行生成 Monthly Details。</p>
+          <p>
+            批量接收 Moderator 原始表，按字段名合并并生成一份 Monthly
+            Details。
+          </p>
           <ul>
             <li>
               <CheckCircle2 size={15} /> 36 列模板结构
@@ -53,6 +56,9 @@ export default function Home() {
             </li>
             <li>
               <CheckCircle2 size={15} /> 支持结算周期筛选
+            </li>
+            <li>
+              <CheckCircle2 size={15} /> 多文件字段乱序匹配
             </li>
           </ul>
           <Link className="entry-action" href="/monthly-details">
@@ -67,8 +73,8 @@ export default function Home() {
           <span className="entry-kicker">MANAGEMENT SOURCE</span>
           <h2>Management → Non-biliable</h2>
           <p>
-            先筛选结算周期，再按 Project、Language、Role 和 Working Account
-            自动汇总工时。
+            跨多个 Management 文件统一筛选，再按 Project、PM、Language
+            和 Role 自动汇总工作天数与工时。
           </p>
           <ul>
             <li>
@@ -79,6 +85,9 @@ export default function Home() {
             </li>
             <li>
               <CheckCircle2 size={15} /> 周期内工时重新汇总
+            </li>
+            <li>
+              <CheckCircle2 size={15} /> 一次筛选所有 PM
             </li>
           </ul>
           <Link className="entry-action" href="/non-billable">

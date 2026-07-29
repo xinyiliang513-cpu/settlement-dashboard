@@ -85,7 +85,7 @@ input {
 }
 
 .brand small,
-.selected-file span,
+.selected-files span,
 .rules-title span,
 .preview-heading span,
 .stat-card small {
@@ -248,34 +248,89 @@ footer span:last-child,
   font-weight: 700;
 }
 
-.selected-file,
+.selected-files,
 .message {
-  display: flex;
-  align-items: center;
-  gap: 11px;
   padding: 11px 13px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: white;
 }
 
-.file-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 6px;
+.selected-files-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.selected-file > div:nth-child(2) {
+.selected-files-heading > div:first-child {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-files-heading svg {
+  flex: 0 0 auto;
+  color: var(--primary);
+}
+
+.selected-files-heading strong {
+  font-size: 12px;
+}
+
+.selected-files-heading span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.selected-files ul {
+  max-height: 156px;
+  display: grid;
+  gap: 0;
+  margin: 10px -13px -11px;
+  padding: 0;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.selected-files li {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border-bottom: 1px solid #f1f3f5;
 }
 
-.selected-file strong {
+.selected-files li:last-child {
+  border-bottom: 0;
+}
+
+.selected-files li > span {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.selected-files li strong {
   overflow: hidden;
-  font-size: 12px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selected-files li small {
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .ready-label {
@@ -286,7 +341,9 @@ footer span:last-child,
 }
 
 .message {
+  display: flex;
   align-items: flex-start;
+  gap: 11px;
   font-size: 12px;
   line-height: 1.55;
 }

@@ -62,10 +62,12 @@ export default function Home() {
           </div>
           <span className="entry-kicker">MANAGEMENT SOURCE</span>
           <h2>Management → Non-biliable</h2>
-          <p>仅接收 Management 原始表，汇总生成 Non-biliable Invoice。</p>
+          <p>
+            相同 Project、Language、Role 和 Working Account 自动合并工时。
+          </p>
           <ul>
             <li>
-              <CheckCircle2 size={15} /> 自动分组汇总
+              <CheckCircle2 size={15} /> 跨月份自动合并
             </li>
             <li>
               <CheckCircle2 size={15} /> 严格遵循模板格式

@@ -55,15 +55,15 @@ const COPY = {
     eyebrow: "MANAGEMENT",
     title: "Non-biliable Invoice",
     description:
-      "此接口只接收 Management 原始表，只生成 Non-biliable Invoice。按项目、语种、人员与月份汇总。",
+      "此接口只接收 Management 原始表，只生成 Non-biliable Invoice。相同项目、语种、角色和 Working Account 自动合并。",
     uploadLabel: "上传 Management Excel",
     outputName: "Non-biliable Invoice",
     accent: "orange",
     rules: [
-      "按项目、语种、人员与月份分别汇总",
-      "有正工时的不同日期计为 Working Days",
+      "Project、Language、Role、Working Account 相同即合并",
+      "跨月份也不拆行；不同工作日期累计为 Working Days",
       "Actual working hour 累加为 Total Working Hours",
-      "所有未映射字段按模板保留为空白",
+      "PM、Name、Need Separate 保留该组第一条记录的值",
     ],
   },
 } as const;

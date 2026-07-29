@@ -5,7 +5,7 @@
 - `Moderator & QA` → 模板中的 `Monthly Details`
 - `Management` → 模板中的 `Non-biliable Invoice`
 
-每个入口都会校验原始表类型，上传错误文件时直接提示。源文件按字段名称匹配，因此列顺序可以变化。处理结果可复制为完整表格数据，也可下载为 Excel。导出的工作簿保留模板列顺序、空白字段、公式和单元格格式；Management 数据会按模板规则汇总。
+每个入口都会校验原始表类型，上传错误文件时直接提示。源文件按字段名称匹配，因此列顺序可以变化。处理结果可复制为完整表格数据，也可下载为 Excel。导出的工作簿保留模板列顺序、空白字段、公式和单元格格式；Management 数据按 `Project + Language + Role + Working Account` 汇总，跨月份仍合并为一行。
 
 ## 本地运行
 

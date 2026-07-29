@@ -364,7 +364,6 @@ type ManagementGroup = {
   name: CellValue;
   account: CellValue;
   needSeparate: CellValue;
-  monthKey: string;
   workingDates: Set<string>;
   totalHours: number;
 };
@@ -407,8 +406,8 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
     if (!hasCoreValue) return;
 
     sourceRows += 1;
-    const { dayKey, monthKey } = dateParts(dateValue);
-    const key = [pm, project, language, role, name, account, needSeparate, monthKey]
+    const { dayKey } = dateParts(dateValue);
+    const key = [project, language, role, account]
       .map((value) => normalizeHeader(value))
       .join("\u001f");
     const group =
@@ -422,7 +421,6 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
         name,
         account,
         needSeparate,
-        monthKey,
         workingDates: new Set<string>(),
         totalHours: 0,
       } satisfies ManagementGroup);

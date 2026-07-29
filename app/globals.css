@@ -378,7 +378,22 @@ footer span:last-child,
   font-size: 28px;
 }
 
-.download-button {
+.result-target {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.download-button,
+.copy-button {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
@@ -392,6 +407,16 @@ footer span:last-child,
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.copy-button {
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #374151;
+}
+
+.copy-button:hover {
+  background: #f8fafc;
 }
 
 .download-button:hover:not(:disabled) {
@@ -674,6 +699,11 @@ footer {
   }
 
   .download-button {
+    width: 100%;
+  }
+
+  .result-actions,
+  .copy-button {
     width: 100%;
   }
 

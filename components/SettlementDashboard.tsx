@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  Copy as CopyIcon,
   Download,
   FileSpreadsheet,
   LockKeyhole,
@@ -39,7 +40,7 @@ const COPY = {
     eyebrow: "MODERATOR & QA",
     title: "Monthly Details",
     description:
-      "上传 Moderator 原始表，按字段名自动对齐到 Monthly Details 模板。列顺序可以变化，空映射列会原样保留。",
+      "此接口只接收 Moderator 原始表，只生成 Monthly Details。按字段名匹配，列顺序可以变化，空映射列原样保留。",
     uploadLabel: "上传 Moderator Excel",
     outputName: "Monthly Details",
     accent: "lime",
@@ -52,11 +53,11 @@ const COPY = {
   },
   nonbillable: {
     eyebrow: "MANAGEMENT",
-    title: "Non-billable Invoice",
+    title: "Non-biliable Invoice",
     description:
-      "上传 Management 原始表，按项目、语种、人员与月份汇总，生成严格遵循模板的 Non-billable Invoice。",
+      "此接口只接收 Management 原始表，只生成 Non-biliable Invoice。按项目、语种、人员与月份汇总。",
     uploadLabel: "上传 Management Excel",
-    outputName: "Non-billable Invoice",
+    outputName: "Non-biliable Invoice",
     accent: "orange",
     rules: [
       "按项目、语种、人员与月份分别汇总",
@@ -84,6 +85,19 @@ function formatCell(value: unknown) {
   return value == null ? "" : String(value);
 }
 
+function formatCellForCopy(value: unknown) {
+  if (value instanceof Date) {
+    return [
+      value.getUTCFullYear(),
+      String(value.getUTCMonth() + 1).padStart(2, "0"),
+      String(value.getUTCDate()).padStart(2, "0"),
+    ].join("-");
+  }
+  return value == null
+    ? ""
+    : String(value).replace(/\t/g, " ").replace(/\r?\n/g, " ");
+}
+
 function formatFileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -107,6 +121,7 @@ export default function SettlementDashboard({ mode }: Props) {
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [copyStatus, setCopyStatus] = useState("");
   const [error, setError] = useState("");
 
   const stats = useMemo(() => {
@@ -193,7 +208,8 @@ export default function SettlementDashboard({ mode }: Props) {
     setIsDownloading(true);
     try {
       const buffer = await buildOutputWorkbook(prepared);
-      const prefix = mode === "monthly" ? "Monthly Details" : "Non-billable Invoice";
+      const prefix =
+        mode === "monthly" ? "Monthly Details" : "Non-biliable Invoice";
       downloadBuffer(buffer as ArrayBuffer, `${prefix}_${todayStamp()}.xlsx`);
     } catch (caught) {
       setError(
@@ -201,6 +217,27 @@ export default function SettlementDashboard({ mode }: Props) {
       );
     } finally {
       setIsDownloading(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!prepared) return;
+    setError("");
+    const text = [
+      headers.map(formatCellForCopy).join("\t"),
+      ...prepared.rows.map((row) =>
+        headers
+          .map((_, columnIndex) => formatCellForCopy(row[columnIndex]))
+          .join("\t"),
+      ),
+    ].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyStatus("已复制全部数据");
+      window.setTimeout(() => setCopyStatus(""), 2200);
+    } catch {
+      setError("复制失败，请使用下载 Excel。");
     }
   }
 
@@ -219,13 +256,13 @@ export default function SettlementDashboard({ mode }: Props) {
             className={mode === "monthly" ? "active" : ""}
             href="/monthly-details"
           >
-            Moderator
+            Moderator → Monthly Details
           </Link>
           <Link
             className={mode === "nonbillable" ? "active" : ""}
             href="/non-billable"
           >
-            Management
+            Management → Non-biliable
           </Link>
         </nav>
         <div className="privacy-chip">
@@ -350,20 +387,34 @@ export default function SettlementDashboard({ mode }: Props) {
                 READY TO EXPORT
               </p>
               <h2>处理结果</h2>
+              <span className="result-target">
+                仅生成：{copy.outputName}
+              </span>
             </div>
-            <button
-              className="download-button"
-              onClick={() => void handleDownload()}
-              disabled={isDownloading}
-            >
-              {isDownloading ? (
-                <RefreshCw className="spin" size={18} />
-              ) : (
-                <Download size={18} />
-              )}
-              {isDownloading ? "正在生成模板…" : "下载 Excel 模板"}
-              {!isDownloading && <ArrowRight size={18} />}
-            </button>
+            <div className="result-actions">
+              <button
+                className="copy-button"
+                onClick={() => void handleCopy()}
+              >
+                {copyStatus ? <Check size={18} /> : <CopyIcon size={18} />}
+                {copyStatus || `复制 ${copy.outputName} 数据`}
+              </button>
+              <button
+                className="download-button"
+                onClick={() => void handleDownload()}
+                disabled={isDownloading}
+              >
+                {isDownloading ? (
+                  <RefreshCw className="spin" size={18} />
+                ) : (
+                  <Download size={18} />
+                )}
+                {isDownloading
+                  ? "正在生成…"
+                  : `下载 ${copy.outputName} Excel`}
+                {!isDownloading && <ArrowRight size={18} />}
+              </button>
+            </div>
           </div>
 
           <div className="stats-grid">
@@ -384,7 +435,7 @@ export default function SettlementDashboard({ mode }: Props) {
               </div>
               <div className="template-status">
                 <CheckCircle2 size={16} />
-                模板结构已锁定
+                仅含 {copy.outputName}
               </div>
             </div>
             <div className="table-scroll">

@@ -157,6 +157,12 @@ const MONTHLY_PERCENT_FIELDS = new Set([
   "Post Accuracy(Quality)",
 ]);
 
+const MONTHLY_SOURCE_SIGNATURES = [
+  "Moderation Task（ByteWorks hours）",
+  "Actual UR（DataPower）",
+  "Moderation Tasks（DataPower）",
+] as const;
+
 export function getPreviewHeaders(mode: DashboardMode) {
   return mode === "monthly" ? MONTHLY_HEADERS : NONBILLABLE_HEADERS;
 }
@@ -291,6 +297,14 @@ function coerceMonthlyValue(field: string, value: CellValue) {
 async function prepareMonthly(file: File): Promise<PreparedData> {
   const allRows = await readRows(file);
   const headerIndex = buildHeaderIndex(allRows[0] ?? []);
+  const monthlySignatureCount = MONTHLY_SOURCE_SIGNATURES.filter((field) =>
+    headerIndex.has(normalizeHeader(field)),
+  ).length;
+  if (monthlySignatureCount < 2) {
+    throw new Error(
+      "此接口只接受 Moderator 原始表，并只生成 Monthly Details。请检查上传文件。",
+    );
+  }
   const mappedFields = MONTHLY_SOURCES.filter(
     (field): field is string => Boolean(field),
   );
@@ -358,6 +372,11 @@ type ManagementGroup = {
 async function prepareNonbillable(file: File): Promise<PreparedData> {
   const allRows = await readRows(file);
   const headerIndex = buildHeaderIndex(allRows[0] ?? []);
+  if (!headerIndex.has(normalizeHeader("Actual working hour"))) {
+    throw new Error(
+      "此接口只接受 Management 原始表，并只生成 Non-biliable Invoice。请检查上传文件。",
+    );
+  }
   const missingFields = NONBILLABLE_SOURCE_FIELDS.filter(
     (field) => !headerIndex.has(normalizeHeader(field)),
   );

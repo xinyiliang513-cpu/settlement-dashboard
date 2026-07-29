@@ -7,14 +7,15 @@ export const metadata: Metadata = {
     template: "%s | Settlement Desk",
   },
   description:
-    "在浏览器本地将 Moderator 与 Management Excel 数据转换为严格遵循模板的结算工作簿。",
+    "两个独立转换接口：Moderator 转 Monthly Details，Management 转 Non-biliable Invoice。",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
   },
   openGraph: {
     title: "Settlement Desk | 结算模板助手",
-    description: "按字段名匹配、自动汇总、严格保留 Excel 模板格式。",
+    description:
+      "Moderator 与 Management 分别进入独立接口，结果可复制或下载 Excel。",
     type: "website",
   },
 };

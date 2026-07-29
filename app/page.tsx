@@ -26,23 +26,23 @@ export default function Home() {
       <section className="landing-hero">
         <p className="eyebrow">
           <span />
-          EXCEL SETTLEMENT WORKSPACE
+          TWO INDEPENDENT CONVERTERS
         </p>
-        <h1>Excel 结算模板转换</h1>
+        <h1>两个独立的 Excel 转换接口</h1>
         <p>
-          选择对应入口上传 Excel。系统按字段名自动匹配，不受原始列顺序影响，
-          并严格保留模板中的空白列、格式与计算规则。
+          两个入口互不混用：Moderator 只对应 Monthly Details，Management
+          只对应 Non-biliable。处理完成后均可复制全部结果或下载对应 Excel。
         </p>
       </section>
 
       <section className="entry-grid">
-        <Link className="entry-card entry-card--lime" href="/monthly-details">
+        <article className="entry-card entry-card--lime">
           <div className="entry-icon">
             <FileSpreadsheet size={28} />
           </div>
-          <span className="entry-kicker">MODERATOR & QA</span>
-          <h2>Monthly Details</h2>
-          <p>逐行映射 Moderator 数据，自动写入 UR 与 Productivity 公式。</p>
+          <span className="entry-kicker">MODERATOR SOURCE</span>
+          <h2>Moderator → Monthly Details</h2>
+          <p>仅接收 Moderator 原始表，逐行生成 Monthly Details。</p>
           <ul>
             <li>
               <CheckCircle2 size={15} /> 36 列模板结构
@@ -51,18 +51,18 @@ export default function Home() {
               <CheckCircle2 size={15} /> 空映射列原样保留
             </li>
           </ul>
-          <span className="entry-action">
-            进入上传页 <ArrowRight size={18} />
-          </span>
-        </Link>
+          <Link className="entry-action" href="/monthly-details">
+            打开 Monthly Details 接口 <ArrowRight size={18} />
+          </Link>
+        </article>
 
-        <Link className="entry-card entry-card--orange" href="/non-billable">
+        <article className="entry-card entry-card--orange">
           <div className="entry-icon">
             <FileSpreadsheet size={28} />
           </div>
-          <span className="entry-kicker">MANAGEMENT</span>
-          <h2>Non-billable Invoice</h2>
-          <p>按项目、语种、人员与月份汇总工时和有效工作天数。</p>
+          <span className="entry-kicker">MANAGEMENT SOURCE</span>
+          <h2>Management → Non-biliable</h2>
+          <p>仅接收 Management 原始表，汇总生成 Non-biliable Invoice。</p>
           <ul>
             <li>
               <CheckCircle2 size={15} /> 自动分组汇总
@@ -71,10 +71,10 @@ export default function Home() {
               <CheckCircle2 size={15} /> 严格遵循模板格式
             </li>
           </ul>
-          <span className="entry-action">
-            进入上传页 <ArrowRight size={18} />
-          </span>
-        </Link>
+          <Link className="entry-action" href="/non-billable">
+            打开 Non-biliable 接口 <ArrowRight size={18} />
+          </Link>
+        </article>
       </section>
 
       <footer>

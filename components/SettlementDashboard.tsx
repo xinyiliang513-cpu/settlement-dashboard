@@ -4,6 +4,7 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowRight,
+  CalendarDays,
   Check,
   CheckCircle2,
   Copy as CopyIcon,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import {
   buildOutputWorkbook,
+  DateFilter,
   DashboardMode,
   downloadBuffer,
   getPreviewHeaders,
@@ -40,11 +42,12 @@ const COPY = {
     eyebrow: "MODERATOR & QA",
     title: "Monthly Details",
     description:
-      "此接口只接收 Moderator 原始表，只生成 Monthly Details。按字段名匹配，列顺序可以变化，空映射列原样保留。",
+      "此接口只接收 Moderator 原始表。上传后选择结算周期，只生成该周期内的 Monthly Details，空映射列原样保留。",
     uploadLabel: "上传 Moderator Excel",
     outputName: "Monthly Details",
     accent: "lime",
     rules: [
+      "先按选择的结算周期筛选 Date，再生成结果",
       "每条原始记录对应模板中的一行",
       "字段名匹配，不依赖原始列顺序",
       "UR Status 与 Productivity 自动写入公式",
@@ -55,13 +58,14 @@ const COPY = {
     eyebrow: "MANAGEMENT",
     title: "Non-biliable Invoice",
     description:
-      "此接口只接收 Management 原始表，只生成 Non-biliable Invoice。相同项目、语种、角色和 Working Account 自动合并。",
+      "此接口只接收 Management 原始表。上传后选择结算周期，再按项目、语种、角色和 Working Account 汇总该周期内的工时。",
     uploadLabel: "上传 Management Excel",
     outputName: "Non-biliable Invoice",
     accent: "orange",
     rules: [
+      "先按选择的结算周期筛选 Date，再执行汇总",
       "Project、Language、Role、Working Account 相同即合并",
-      "跨月份也不拆行；不同工作日期累计为 Working Days",
+      "所选周期可跨月份；不同工作日期累计为 Working Days",
       "Actual working hour 累加为 Total Working Hours",
       "PM、Name、Need Separate 保留该组第一条记录的值",
     ],
@@ -123,6 +127,16 @@ export default function SettlementDashboard({ mode }: Props) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [copyStatus, setCopyStatus] = useState("");
   const [error, setError] = useState("");
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
+
+  const appliedDateStart =
+    prepared?.selectedDateStart ?? prepared?.availableDateStart ?? "";
+  const appliedDateEnd =
+    prepared?.selectedDateEnd ?? prepared?.availableDateEnd ?? "";
+  const hasPendingDateChange =
+    Boolean(prepared) &&
+    (dateStart !== appliedDateStart || dateEnd !== appliedDateEnd);
 
   const stats = useMemo(() => {
     if (!prepared) return [];
@@ -130,7 +144,7 @@ export default function SettlementDashboard({ mode }: Props) {
       {
         label: "来源记录",
         value: prepared.sourceRows.toLocaleString("en-US"),
-        note: "有效数据行",
+        note: "所选周期内有效数据行",
       },
       {
         label: mode === "monthly" ? "输出记录" : "汇总记录",
@@ -142,16 +156,14 @@ export default function SettlementDashboard({ mode }: Props) {
         value: `${prepared.matchedFields}/${prepared.expectedFields}`,
         note: prepared.missingFields.length ? "存在未匹配字段" : "全部匹配",
       },
+      {
+        label: "结算周期",
+        value: prepared.dateRange ?? "—",
+        note: "复制与下载均按此范围",
+      },
     ];
     if (mode === "monthly") {
-      return [
-        ...common,
-        {
-          label: "日期范围",
-          value: prepared.dateRange ?? "—",
-          note: "按源数据识别",
-        },
-      ];
+      return common;
     }
     return [
       ...common,
@@ -165,14 +177,26 @@ export default function SettlementDashboard({ mode }: Props) {
     ];
   }, [mode, prepared]);
 
-  async function processFile(file: File) {
-    setSourceFile(file);
-    setPrepared(null);
+  async function processFile(
+    file: File,
+    dateFilter?: DateFilter,
+    initialize = false,
+  ) {
+    if (initialize) {
+      setSourceFile(file);
+      setPrepared(null);
+      setDateStart("");
+      setDateEnd("");
+    }
     setError("");
     setIsProcessing(true);
     try {
-      const result = await prepareWorkbook(file, mode);
+      const result = await prepareWorkbook(file, mode, dateFilter);
       setPrepared(result);
+      if (initialize) {
+        setDateStart(result.availableDateStart ?? "");
+        setDateEnd(result.availableDateEnd ?? "");
+      }
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "文件处理失败，请检查后重试。",
@@ -184,7 +208,7 @@ export default function SettlementDashboard({ mode }: Props) {
 
   function handleInput(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (file) void processFile(file);
+    if (file) void processFile(file, undefined, true);
     event.target.value = "";
   }
 
@@ -192,7 +216,23 @@ export default function SettlementDashboard({ mode }: Props) {
     event.preventDefault();
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
-    if (file) void processFile(file);
+    if (file) void processFile(file, undefined, true);
+  }
+
+  async function handleApplyDateFilter() {
+    if (!sourceFile) return;
+    if (!dateStart || !dateEnd) {
+      setError("请选择完整的开始日期和结束日期。");
+      return;
+    }
+    await processFile(sourceFile, { start: dateStart, end: dateEnd });
+  }
+
+  async function handleResetDateFilter() {
+    if (!sourceFile || !prepared) return;
+    setDateStart(prepared.availableDateStart ?? "");
+    setDateEnd(prepared.availableDateEnd ?? "");
+    await processFile(sourceFile);
   }
 
   function handleDropzoneKey(event: KeyboardEvent<HTMLDivElement>) {
@@ -379,6 +419,83 @@ export default function SettlementDashboard({ mode }: Props) {
       </section>
 
       {prepared && (
+        <section className="date-filter" aria-labelledby="date-filter-title">
+          <div className="date-filter-heading">
+            <CalendarDays size={20} />
+            <div>
+              <strong id="date-filter-title">选择结算周期</strong>
+              <span>
+                原始数据可选范围：
+                {prepared.availableDateStart && prepared.availableDateEnd
+                  ? `${prepared.availableDateStart} 至 ${prepared.availableDateEnd}`
+                  : "未识别到有效日期"}
+              </span>
+            </div>
+          </div>
+          <div className="date-controls">
+            <label>
+              开始日期
+              <input
+                type="date"
+                value={dateStart}
+                min={prepared.availableDateStart}
+                max={prepared.availableDateEnd}
+                onChange={(event) => setDateStart(event.target.value)}
+                disabled={!prepared.availableDateStart || isProcessing}
+              />
+            </label>
+            <span className="date-separator">至</span>
+            <label>
+              结束日期
+              <input
+                type="date"
+                value={dateEnd}
+                min={prepared.availableDateStart}
+                max={prepared.availableDateEnd}
+                onChange={(event) => setDateEnd(event.target.value)}
+                disabled={!prepared.availableDateEnd || isProcessing}
+              />
+            </label>
+            <button
+              className="apply-filter-button"
+              onClick={() => void handleApplyDateFilter()}
+              disabled={
+                isProcessing ||
+                !prepared.availableDateStart ||
+                !hasPendingDateChange
+              }
+            >
+              {isProcessing ? (
+                <RefreshCw className="spin" size={16} />
+              ) : (
+                <Check size={16} />
+              )}
+              {isProcessing ? "正在更新…" : "应用日期筛选"}
+            </button>
+            <button
+              className="reset-filter-button"
+              onClick={() => void handleResetDateFilter()}
+              disabled={
+                isProcessing ||
+                (!hasPendingDateChange &&
+                  !prepared.selectedDateStart &&
+                  !prepared.selectedDateEnd)
+              }
+            >
+              重置全部日期
+            </button>
+          </div>
+          <p className={hasPendingDateChange ? "filter-note pending" : "filter-note"}>
+            {hasPendingDateChange
+              ? "日期已修改，请点击“应用日期筛选”后再复制或下载。"
+              : mode === "nonbillable"
+                ? `当前周期 ${prepared.dateRange ?? "—"}：已重新汇总工时与工作天数。`
+                : `当前周期 ${prepared.dateRange ?? "—"}：仅保留该范围内的明细。`}
+          </p>
+        </section>
+      )}
+
+      {prepared && (
         <section className="results" aria-live="polite">
           <div className="section-heading">
             <div>
@@ -395,6 +512,7 @@ export default function SettlementDashboard({ mode }: Props) {
               <button
                 className="copy-button"
                 onClick={() => void handleCopy()}
+                disabled={hasPendingDateChange || isProcessing}
               >
                 {copyStatus ? <Check size={18} /> : <CopyIcon size={18} />}
                 {copyStatus || `复制 ${copy.outputName} 数据`}
@@ -402,7 +520,9 @@ export default function SettlementDashboard({ mode }: Props) {
               <button
                 className="download-button"
                 onClick={() => void handleDownload()}
-                disabled={isDownloading}
+                disabled={
+                  isDownloading || hasPendingDateChange || isProcessing
+                }
               >
                 {isDownloading ? (
                   <RefreshCw className="spin" size={18} />

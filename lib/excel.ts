@@ -4,6 +4,11 @@ export type DashboardMode = "monthly" | "nonbillable";
 
 export type CellValue = string | number | boolean | Date | null;
 
+export type DateFilter = {
+  start?: string;
+  end?: string;
+};
+
 export type PreparedData = {
   mode: DashboardMode;
   fileName: string;
@@ -15,6 +20,10 @@ export type PreparedData = {
   rows: CellValue[][];
   totalHours?: number;
   dateRange?: string;
+  availableDateStart?: string;
+  availableDateEnd?: string;
+  selectedDateStart?: string;
+  selectedDateEnd?: string;
 };
 
 const MONTHLY_HEADERS = [
@@ -269,6 +278,55 @@ function displayDate(value: CellValue) {
   return year >= 2000 && year <= 2100 ? parsed.dayKey : "";
 }
 
+function validateDateFilter(filter?: DateFilter) {
+  const start = filter?.start?.trim() || undefined;
+  const end = filter?.end?.trim() || undefined;
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  if (start && !datePattern.test(start)) {
+    throw new Error("开始日期格式不正确，请重新选择。");
+  }
+  if (end && !datePattern.test(end)) {
+    throw new Error("结束日期格式不正确，请重新选择。");
+  }
+  if (start && end && start > end) {
+    throw new Error("开始日期不能晚于结束日期。");
+  }
+  return { start, end };
+}
+
+function isDateInFilter(dayKey: string, filter: ReturnType<typeof validateDateFilter>) {
+  if (!filter.start && !filter.end) return true;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return false;
+  if (filter.start && dayKey < filter.start) return false;
+  if (filter.end && dayKey > filter.end) return false;
+  return true;
+}
+
+function getAvailableDateRange(dates: string[]) {
+  const validDates = dates
+    .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+    .sort();
+  return {
+    availableDateStart: validDates[0],
+    availableDateEnd: validDates[validDates.length - 1],
+  };
+}
+
+function getSelectedDateRange(
+  selectedDates: string[],
+  filter: ReturnType<typeof validateDateFilter>,
+  availableRange: ReturnType<typeof getAvailableDateRange>,
+) {
+  if (filter.start || filter.end) {
+    const start = filter.start ?? availableRange.availableDateStart;
+    const end = filter.end ?? availableRange.availableDateEnd;
+    return start && end ? `${start} — ${end}` : "—";
+  }
+  return selectedDates.length
+    ? `${selectedDates[0]} — ${selectedDates[selectedDates.length - 1]}`
+    : "—";
+}
+
 async function readRows(file: File) {
   const XLSX = await import("xlsx");
   const workbook = XLSX.read(await file.arrayBuffer(), {
@@ -294,8 +352,12 @@ function coerceMonthlyValue(field: string, value: CellValue) {
   return value;
 }
 
-async function prepareMonthly(file: File): Promise<PreparedData> {
+async function prepareMonthly(
+  file: File,
+  dateFilter?: DateFilter,
+): Promise<PreparedData> {
   const allRows = await readRows(file);
+  const filter = validateDateFilter(dateFilter);
   const headerIndex = buildHeaderIndex(allRows[0] ?? []);
   const monthlySignatureCount = MONTHLY_SOURCE_SIGNATURES.filter((field) =>
     headerIndex.has(normalizeHeader(field)),
@@ -312,7 +374,8 @@ async function prepareMonthly(file: File): Promise<PreparedData> {
   const missingFields = uniqueFields.filter(
     (field) => !headerIndex.has(normalizeHeader(field)),
   );
-  const dates: string[] = [];
+  const availableDates: string[] = [];
+  const selectedDates: string[] = [];
   const rows: CellValue[][] = [];
 
   for (const sourceRow of allRows.slice(1)) {
@@ -321,6 +384,12 @@ async function prepareMonthly(file: File): Promise<PreparedData> {
       (field) => !isBlank(getByHeader(sourceRow, headerIndex, field)),
     );
     if (!hasCoreValue) continue;
+
+    const sourceDate = displayDate(
+      getByHeader(sourceRow, headerIndex, "Date"),
+    );
+    if (sourceDate) availableDates.push(sourceDate);
+    if (!isDateInFilter(sourceDate, filter)) continue;
 
     const outputRow = MONTHLY_SOURCES.map((field) =>
       field
@@ -335,11 +404,12 @@ async function prepareMonthly(file: File): Promise<PreparedData> {
     outputRow[24] = actualUr !== null && actualUr >= 0.75 ? "Yes" : "No";
     outputRow[27] =
       actualAht !== null && actualAht !== 0 ? 3600 / actualAht : null;
-    dates.push(displayDate(outputRow[8]));
+    if (sourceDate) selectedDates.push(sourceDate);
     rows.push(outputRow);
   }
 
-  const sortedDates = dates.filter(Boolean).sort();
+  const sortedSelectedDates = selectedDates.sort();
+  const availableRange = getAvailableDateRange(availableDates);
   return {
     mode: "monthly",
     fileName: file.name,
@@ -349,9 +419,14 @@ async function prepareMonthly(file: File): Promise<PreparedData> {
     expectedFields: uniqueFields.length,
     missingFields,
     rows,
-    dateRange: sortedDates.length
-      ? `${sortedDates[0]} — ${sortedDates[sortedDates.length - 1]}`
-      : "—",
+    dateRange: getSelectedDateRange(
+      sortedSelectedDates,
+      filter,
+      availableRange,
+    ),
+    ...availableRange,
+    selectedDateStart: filter.start,
+    selectedDateEnd: filter.end,
   };
 }
 
@@ -368,8 +443,12 @@ type ManagementGroup = {
   totalHours: number;
 };
 
-async function prepareNonbillable(file: File): Promise<PreparedData> {
+async function prepareNonbillable(
+  file: File,
+  dateFilter?: DateFilter,
+): Promise<PreparedData> {
   const allRows = await readRows(file);
+  const filter = validateDateFilter(dateFilter);
   const headerIndex = buildHeaderIndex(allRows[0] ?? []);
   if (!headerIndex.has(normalizeHeader("Actual working hour"))) {
     throw new Error(
@@ -380,6 +459,8 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
     (field) => !headerIndex.has(normalizeHeader(field)),
   );
   const groups = new Map<string, ManagementGroup>();
+  const availableDates: string[] = [];
+  const selectedDates: string[] = [];
   let sourceRows = 0;
 
   allRows.slice(1).forEach((sourceRow, rowIndex) => {
@@ -405,8 +486,16 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
     );
     if (!hasCoreValue) return;
 
-    sourceRows += 1;
     const { dayKey } = dateParts(dateValue);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      availableDates.push(dayKey);
+    }
+    if (!isDateInFilter(dayKey, filter)) return;
+
+    sourceRows += 1;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      selectedDates.push(dayKey);
+    }
     const key = [project, language, role, account]
       .map((value) => normalizeHeader(value))
       .join("\u001f");
@@ -458,6 +547,8 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
     null,
     group.needSeparate,
   ]);
+  const sortedSelectedDates = selectedDates.sort();
+  const availableRange = getAvailableDateRange(availableDates);
 
   return {
     mode: "nonbillable",
@@ -473,20 +564,29 @@ async function prepareNonbillable(file: File): Promise<PreparedData> {
       (total, group) => total + group.totalHours,
       0,
     ),
+    dateRange: getSelectedDateRange(
+      sortedSelectedDates,
+      filter,
+      availableRange,
+    ),
+    ...availableRange,
+    selectedDateStart: filter.start,
+    selectedDateEnd: filter.end,
   };
 }
 
 export async function prepareWorkbook(
   file: File,
   mode: DashboardMode,
+  dateFilter?: DateFilter,
 ): Promise<PreparedData> {
   const name = file.name.toLowerCase();
   if (!name.endsWith(".xlsx") && !name.endsWith(".xls")) {
     throw new Error("请上传 .xlsx 或 .xls 格式的 Excel 文件。");
   }
   return mode === "monthly"
-    ? prepareMonthly(file)
-    : prepareNonbillable(file);
+    ? prepareMonthly(file, dateFilter)
+    : prepareNonbillable(file, dateFilter);
 }
 
 function clone<T>(value: T): T {
